@@ -10,15 +10,17 @@ sudo uhubctl -l 2 -a off   # off
 sudo uhubctl -l 2 -a on    # on
 ```
 
-This is **ganged** — every port on hub location `2` switches together, so the Pi must be
-used headless (Pi Connect / SSH) and must not boot from a USB device. Full rationale, the
-rejected alternatives, and the fallback if this stops working: [docs/story-1-usb-power-spike.md](docs/story-1-usb-power-spike.md).
+Verified working on the device. This is **ganged** — every port on hub location `2`
+switches together — which is fine here because the light is the only USB device attached,
+the Pi is reached over Pi Connect with no keyboard or mouse, and it boots from microSD.
+Full rationale, the rejected alternatives, and the fallback if this ever stops working:
+[docs/story-1-usb-power-spike.md](docs/story-1-usb-power-spike.md).
 
-To capture the spike evidence on the Pi:
+To record the hub listing and Pi/OS versions for the spike artefact:
 
 ```bash
 sudo apt install -y uhubctl
-sudo ./scripts/spike-usb-power.sh
+sudo ./scripts/spike-usb-power.sh --no-cycle
 ```
 
 ## Documents
