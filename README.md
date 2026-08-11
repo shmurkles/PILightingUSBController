@@ -45,6 +45,21 @@ python3 -m pilight.power on --backend dryrun   # no hardware touched
 Interface, config keys, error types, and how the service gets the privileges `uhubctl`
 needs: [docs/power-backend.md](docs/power-backend.md).
 
+## Sunset calculation
+
+```python
+from datetime import date
+from pilight.sun import get_sunset
+
+sunset = get_sunset(date.today(), lat=45.5152, lon=-122.6784, tz="America/Los_Angeles")
+```
+
+Pure arithmetic (the NOAA solar equations, via [`astral`](https://pypi.org/project/astral/))
+-- no network call, ever. Verified against the NOAA Solar Calculator for Portland, OR on
+all four solstices/equinoxes of 2026, within ±2 minutes; see `tests/test_sunset.py`.
+Locations where the sun doesn't set that day raise `pilight.sun.PolarDayError` rather than
+returning nonsense. Rationale: [RESEARCH.md §3](RESEARCH.md#3-how-do-we-compute-sunset-without-pinging-an-api).
+
 ## Tests
 
 ```bash
