@@ -85,26 +85,26 @@ Two behaviours Story 2 inherits directly from this spike:
 - [x] Verified end-to-end — the light physically goes dark on command and comes back on.
 - [x] Ganged blast radius confirmed acceptable — the light is the only USB device attached,
       the Pi is reached over Pi Connect with no keyboard or mouse, and it boots from microSD.
-- [ ] `sudo uhubctl` output recorded, with Pi model and OS version — the switching works,
-      but the listing itself is not yet in the repo.
-- [ ] Light's current draw measured or looked up, and confirmed within budget — see below.
+- [x] `sudo uhubctl` output recorded, with Pi model and OS version — see
+      [story-1-spike-results.md](./story-1-spike-results.md). Note: the hub's capability
+      line reports `ppps` (per-port capable), not `ganged` — this backend still operates it
+      ganged by choice (no `-p`), which remains correct since the light is the only device
+      attached. `ppps` is good news, not a contradiction: option B-free per-port switching
+      is available later if a second device ever shares this hub.
+- [~] Light's current draw measured or looked up, and confirmed within budget — no rating
+      label found on the light; owner's rough estimate is "well under 10 W" (LED fairy
+      lights, so realistically well under 1 A). Treated as within the ~1.2 A budget, but
+      this is an estimate, not a meter reading — see
+      [story-1-spike-results.md](./story-1-spike-results.md) for detail. Revisit with a USB
+      power meter if this backend ever misbehaves.
 
-### Capturing the last two
+### Evidence
 
-```bash
-sudo ./scripts/spike-usb-power.sh --no-cycle
-```
+Captured 2026-08-10 over an SSH/Tailscale session, with the physical off/on observation
+relayed by the device owner (the collection script prompts interactively via `/dev/tty` and
+can't run unattended over a plain SSH pipe). Full listing and lsusb output in
+[story-1-spike-results.md](./story-1-spike-results.md). `scripts/spike-usb-power.sh` still
+works for anyone re-running this at the keyboard.
 
-Records the Pi model, OS and kernel versions, the full `uhubctl` listing and its capability
-line for location `2`, the devices on the bus, and a prompt for the light's current draw.
-Writes `docs/story-1-spike-results.md` — commit that as the artefact. `--no-cycle` skips the
-off/on test, since that part is already confirmed; drop the flag to re-run it.
-
-**Current draw is the one that still carries risk.** Downstream USB on a Pi is limited to
-roughly 1.2 A total across all ports (Pi 3/4); a USB lamp or LED strip is typically
-0.2–0.5 A and fine. Worth checking the label, because a brownout on a Pi presents as random
-filesystem corruption rather than as a lighting bug — it would be diagnosed as anything but
-this project.
-
-Neither open item blocks Story 2. The interface, the command, and the ganged semantics are
-all settled.
+Both open items are now addressed well enough to close Story 1. The interface, the command,
+and the ganged semantics are all settled.
