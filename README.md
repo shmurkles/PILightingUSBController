@@ -100,6 +100,25 @@ must never leave the room dark all night, but it also shouldn't destroy whatever
 Every field is validated independently, so one bad value can't take the rest of a working
 config down with it. Writes are atomic (temp file + rename).
 
+## Scheduler daemon
+
+```python
+from pathlib import Path
+from pilight.scheduler import SchedulerDaemon
+
+daemon = SchedulerDaemon(Path("/var/lib/pilight/config.json"))
+daemon.run()   # loops forever: one reconciliation tick every 30s
+```
+
+Reconcile, don't fire: every tick, recompute what the light should be doing right now from
+(now, config, sunset) and switch only on mismatch -- self-healing after reboot or power loss,
+correct across DST and clock steps, applies config edits within 30s with no restart. The
+decision itself, `pilight.scheduler.window.compute_schedule()`, is a pure function with no
+I/O, so it's unit-tested exhaustively with frozen clocks rather than by running the daemon
+for a day. An offset that pushes on-time past the configured off-time is detected as an
+invalid window (logged, light left off) rather than switching on for the better part of a
+day. Rationale: [RESEARCH.md §5](RESEARCH.md#5-scheduling-design-reconcile-dont-fire).
+
 ## Tests
 
 ```bash
