@@ -15,5 +15,8 @@ dev = ["pytest>=7"]
 [tool.setuptools.packages.find]
 include = ["pilight*"]
 
+[tool.setuptools.package-data]
+"pilight.data" = ["*.tsv", "*.md"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]

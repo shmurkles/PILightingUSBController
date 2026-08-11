@@ -60,6 +60,26 @@ all four solstices/equinoxes of 2026, within ±2 minutes; see `tests/test_sunset
 Locations where the sun doesn't set that day raise `pilight.sun.PolarDayError` rather than
 returning nonsense. Rationale: [RESEARCH.md §3](RESEARCH.md#3-how-do-we-compute-sunset-without-pinging-an-api).
 
+## Location resolution
+
+```python
+from pathlib import Path
+from pilight.location import resolve_location
+
+location = resolve_location(Path("/var/lib/pilight/location.json"))
+print(location.lat, location.lon, location.timezone, location.city, location.source)
+```
+
+Resolution order: a manual city pick always wins, then a permanent on-disk cache, then a
+single one-time IP geolocation call, then (only if that's unreachable) an offline city
+picker over the bundled `pilight/data/cities15000.tsv` (trimmed from
+[GeoNames](https://www.geonames.org/), CC BY 4.0 -- see
+[pilight/data/ATTRIBUTION.md](pilight/data/ATTRIBUTION.md)). After the first successful
+resolution, no further network request happens unless the caller passes
+`force_redetect=True`. Timezone is resolved separately and freshly on every call, system
+setting first: rationale in [RESEARCH.md §2](RESEARCH.md#2-how-do-we-know-where-we-are-with-no-gps)
+and [§4](RESEARCH.md#4-is-there-a-database-of-cities-for-sunset-lookup).
+
 ## Tests
 
 ```bash
