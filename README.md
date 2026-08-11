@@ -80,6 +80,26 @@ resolution, no further network request happens unless the caller passes
 setting first: rationale in [RESEARCH.md §2](RESEARCH.md#2-how-do-we-know-where-we-are-with-no-gps)
 and [§4](RESEARCH.md#4-is-there-a-database-of-cities-for-sunset-lookup).
 
+## Configuration file
+
+```python
+from pathlib import Path
+from pilight.config import load_config, save_config
+
+config = load_config(Path("/var/lib/pilight/config.json"))  # writes documented defaults on first run
+config.offset_minutes   # -180..180, clamped on load; out-of-range values are logged and fixed
+config.off_time         # "HH:MM"
+config.location          # a pilight.location.ResolvedLocation, or None before first resolution
+config.to_dict()         # directly usable as pilight.power.create_backend(config.to_dict())
+```
+
+One JSON file, read by the scheduler daemon and written by the GUI (Story 9). A missing file
+gets documented defaults written to it immediately; a corrupt or unreadable one is logged
+loudly and defaults are used for that run *without touching the file on disk* -- a bad config
+must never leave the room dark all night, but it also shouldn't destroy whatever the user had.
+Every field is validated independently, so one bad value can't take the rest of a working
+config down with it. Writes are atomic (temp file + rename).
+
 ## Tests
 
 ```bash

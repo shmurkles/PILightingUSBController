@@ -10,8 +10,9 @@ Story 5 will require of the full config file.
 from __future__ import annotations
 
 import json
-import os
 from pathlib import Path
+
+from pilight.util.atomic import atomic_write_text
 
 from .model import ResolvedLocation
 
@@ -35,12 +36,5 @@ def load_cached_location(path: Path) -> ResolvedLocation | None:
 
 
 def save_cached_location(path: Path, location: ResolvedLocation) -> None:
-    """Write the cache atomically: write to a temp file, then rename over the target.
-
-    The rename is atomic on POSIX (same filesystem), so a reader never sees a
-    partially written file.
-    """
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp_path = path.with_suffix(path.suffix + ".tmp")
-    tmp_path.write_text(json.dumps(location.to_dict(), indent=2) + "\n", encoding="utf-8")
-    os.replace(tmp_path, path)
+    """Write the cache atomically -- a reader never sees a partially written file."""
+    atomic_write_text(path, json.dumps(location.to_dict(), indent=2) + "\n")
