@@ -119,6 +119,19 @@ for a day. An offset that pushes on-time past the configured off-time is detecte
 invalid window (logged, light left off) rather than switching on for the better part of a
 day. Rationale: [RESEARCH.md §5](RESEARCH.md#5-scheduling-design-reconcile-dont-fire).
 
+## Running as a service
+
+```bash
+sudo systemctl enable --now pilight-scheduler   # start now and on every boot
+sudo systemctl status pilight-scheduler
+sudo systemctl disable --now pilight-scheduler  # stop and remove from boot
+journalctl -u pilight-scheduler -f              # every reconciliation decision and transition
+```
+
+Full install steps (dedicated venv, state directory permissions, seeding a location before
+the service has anything to do): [docs/story-7-systemd-service.md](docs/story-7-systemd-service.md).
+The unit file itself is [deploy/pilight-scheduler.service](deploy/pilight-scheduler.service).
+
 ## Tests
 
 ```bash
