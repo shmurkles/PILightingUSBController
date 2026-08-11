@@ -1,6 +1,6 @@
 # Story 7 — systemd service
 
-**Status:** unit file written; deployment steps below.
+**Status:** deployed and verified on the real device.
 
 ## Decision
 
@@ -71,7 +71,24 @@ sudo systemctl enable --now pilight-scheduler
       transitions (stderr is captured automatically; no extra code needed).
 - [x] Runs with exactly the privileges the backend requires (root, for raw USB access) and
       no more.
-- [ ] Verified: full reboot -> light is in the correct state within one loop interval. To be
-      confirmed on the real device after deployment.
+- [x] Verified: full reboot -> light is in the correct state within one loop interval.
+      Deployed 2026-08-10 (location resolved to Edmonton, Canada via IP geolocation,
+      confirmed against the device's own `/etc/timezone`, also `America/Edmonton`). After
+      `sudo reboot`, the service auto-started, loaded config, and switched the light off on
+      its first tick (now was past the 23:30 default off-time) -- confirmed physically via
+      `uhubctl -l 2`, all four ports reporting off.
 - [x] `enable` / `disable` / `status` documented -- see the README's Scheduler daemon
       section.
+
+## Deployment log
+
+```
+$ sudo systemctl enable --now pilight-scheduler
+$ sudo journalctl -u pilight-scheduler -b --no-pager
+Aug 10 23:31:35 shmurkles systemd[1]: Started pilight-scheduler.service
+Aug 10 23:31:36 shmurkles python[774]: INFO __main__: starting scheduler daemon, config=/var/lib/pilight/config.json
+Aug 10 23:31:36 shmurkles python[774]: INFO pilight.scheduler.daemon: config (re)loaded from /var/lib/pilight/config.json
+Aug 10 23:31:36 shmurkles python[774]: INFO pilight.power.factory: power backend: uhubctl hub 2 (ganged, all ports)
+Aug 10 23:31:39 shmurkles python[774]: INFO pilight.power.uhubctl: uhubctl set power off for hub 2 (ganged, all ports)
+Aug 10 23:31:39 shmurkles python[774]: INFO pilight.scheduler.daemon: switched light off (on=2026-08-10T21:11:57-06:00 off=2026-08-10T23:30:00-06:00)
+```
