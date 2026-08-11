@@ -1,0 +1,19 @@
+[Unit]
+Description=pilight scheduler daemon -- sunset-scheduled USB light
+Documentation=https://github.com/shmurkles/PILightingUSBController
+After=local-fs.target
+
+[Service]
+Type=simple
+ExecStart=/opt/pilight/venv/bin/python -m pilight.scheduler
+Environment=PILIGHT_CONFIG=/var/lib/pilight/config.json
+Restart=always
+RestartSec=5
+# uhubctl needs raw USB access (RESEARCH.md §1); root is the simplest path,
+# matches docs/power-backend.md, and is exactly what this backend requires
+# -- no more. A udev rule granting a non-root user access to the specific
+# hub device node is the tightening option noted there, not applied here.
+User=root
+
+[Install]
+WantedBy=multi-user.target
