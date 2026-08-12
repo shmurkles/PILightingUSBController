@@ -23,10 +23,12 @@ from .model import (
     OFFSET_MIN_MINUTES,
     PiLightConfig,
 )
+from .paths import DEFAULT_CONFIG_PATH
 
 __all__ = [
     "CURRENT_SCHEMA_VERSION",
     "DEFAULT_BACKEND",
+    "DEFAULT_CONFIG_PATH",
     "DEFAULT_OFF_TIME",
     "DEFAULT_OFFSET_MINUTES",
     "OFFSET_MAX_MINUTES",
