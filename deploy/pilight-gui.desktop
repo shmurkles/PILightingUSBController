@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Bedroom Light
+Comment=Adjust the sunset-scheduled USB light
+Exec=/opt/pilight/venv/bin/python -m pilight.gui
+Icon=preferences-system-time
+Terminal=false
+Categories=Utility;

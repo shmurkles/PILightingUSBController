@@ -1,6 +1,39 @@
 # PILightingUSBController
 A simple way to use a raspberry PI to turn on and off USB lights connected to a raspberry PI's USB ports depending on your local sunset sunrise times as they change throughout the year
 
+## Install
+
+Requires a Raspberry Pi (built and verified on a Pi 4, Debian 13 "trixie" / Raspberry Pi OS)
+with the USB light plugged directly into one of the Pi's own USB ports -- not through an
+external hub -- and a desktop session reachable over Pi Connect (or a monitor) for the
+configuration window.
+
+```bash
+git clone https://github.com/shmurkles/PILightingUSBController.git
+cd PILightingUSBController
+sudo ./scripts/install.sh
+```
+
+This installs `uhubctl`/`python3-tk`, sets up a dedicated venv at `/opt/pilight`, creates the
+`pilight` group and `/var/lib/pilight` state directory, resolves this device's location (a
+one-time IP geolocation call -- needs network once), installs and starts the systemd service,
+and adds a **Bedroom Light** desktop launcher. Safe to re-run after `git pull` to pick up
+updates.
+
+**Log out and back in** (or reboot) afterward so your user's new `pilight` group membership
+takes effect -- needed before the configuration window can save changes.
+
+If your hub's switching behaviour differs from this project's own Pi (hub `2`, ganged -- see
+[docs/story-1-usb-power-spike.md](docs/story-1-usb-power-spike.md)), re-run the spike script to
+find yours and set it in `/var/lib/pilight/config.json`'s `"uhubctl": {"location": "..."}`:
+
+```bash
+sudo ./scripts/spike-usb-power.sh
+```
+
+Then open the **Bedroom Light** launcher (or `python3 -m pilight.gui`) to set your offset and
+off time.
+
 ## Power switching
 
 The light is switched by cutting power to the Pi's built-in USB hub:
@@ -163,13 +196,46 @@ config so it doesn't linger. The window shows *"Manual override: on until HH:MM"
 active, and reloads config from disk on its periodic refresh so a daemon-initiated clear is
 noticed even if the window was left open.
 
+## Troubleshooting
+
+**Light doesn't switch on/off at all**
+- `sudo systemctl status pilight-scheduler` -- is it running?
+  `journalctl -u pilight-scheduler -f` shows every reconciliation decision and switch attempt.
+- `sudo /opt/pilight/venv/bin/python -m pilight.power status` queries the hub directly,
+  bypassing the daemon, to check whether `uhubctl` itself can see and control it.
+- Confirm the light is plugged into the hub location configured in
+  `/var/lib/pilight/config.json` (default `2`) -- re-run `sudo ./scripts/spike-usb-power.sh`
+  if you're not sure, especially on different hardware than this project's own Pi.
+- Check `config.json`'s `"location"` field isn't `null` -- the daemon skips every tick and
+  logs "no location resolved yet" until it's set:
+  `sudo /opt/pilight/venv/bin/python -m pilight.location resolve /var/lib/pilight/config.json`.
+
+**Sunset time looks wrong**
+- The GUI's status corner shows the resolved city and today's sunset. If the city is wrong,
+  re-detect: `sudo /opt/pilight/venv/bin/python -m pilight.location resolve --redetect
+  /var/lib/pilight/config.json` (see [Location resolution](#location-resolution) for the offline
+  picker if IP geolocation keeps getting it wrong).
+- If the city looks right but the time is still off, check the Pi's own system timezone
+  (`timedatectl`) -- that's preferred over the IP lookup's timezone whenever it's set
+  ([RESEARCH.md §4](RESEARCH.md#4-is-there-a-database-of-cities-for-sunset-lookup)).
+
+**GUI shows "scheduler not running"**
+- No fresh status update from the daemon in 90s -- almost always the service isn't running
+  (`sudo systemctl status pilight-scheduler`) or isn't installed yet (`sudo ./scripts/install.sh`).
+
+**GUI changes don't seem to save**
+- The GUI needs to be in the `pilight` group to write `/var/lib/pilight/config.json` -- log out
+  and back in after first install (group membership needs a fresh login session), or check
+  with `groups`.
+
 ## Tests
 
 ```bash
 python3 -m pytest
 ```
 
-No hub, no root, and no `uhubctl` required — the hardware is stubbed.
+No hub, no root, and no `uhubctl` required — the hardware is stubbed. The GUI's own tests
+additionally need `$DISPLAY` set (they're skipped without one, e.g. over plain SSH).
 
 ## Documents
 
