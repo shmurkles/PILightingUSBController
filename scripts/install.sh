@@ -68,6 +68,13 @@ for DEST in "$USER_HOME/Desktop" "$USER_HOME/.local/share/applications"; do
 	install -m 755 -o "$REAL_USER" -g "$REAL_USER" \
 		"$REPO_ROOT/deploy/pilight-gui.desktop" "$DEST/pilight-gui.desktop"
 done
+# The Desktop copy specifically gets double-clicked from the file manager,
+# which otherwise shows an "Execute File?" confirmation the first time (and
+# every time, until this metadata bit is set) -- the applications-menu copy
+# doesn't need it, since app-menu entries aren't subject to that check.
+if command -v gio >/dev/null 2>&1; then
+	sudo -u "$REAL_USER" gio set "$USER_HOME/Desktop/pilight-gui.desktop" metadata::trusted true || true
+fi
 
 say "Done."
 echo "Service status: sudo systemctl status pilight-scheduler"
