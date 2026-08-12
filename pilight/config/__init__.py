@@ -23,6 +23,7 @@ from .model import (
     OFFSET_MIN_MINUTES,
     PiLightConfig,
 )
+from .override import ManualOverride
 from .paths import DEFAULT_CONFIG_PATH
 
 __all__ = [
@@ -31,6 +32,7 @@ __all__ = [
     "DEFAULT_CONFIG_PATH",
     "DEFAULT_OFF_TIME",
     "DEFAULT_OFFSET_MINUTES",
+    "ManualOverride",
     "OFFSET_MAX_MINUTES",
     "OFFSET_MIN_MINUTES",
     "PiLightConfig",

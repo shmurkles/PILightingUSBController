@@ -1,4 +1,4 @@
-"""PiLightGUI -- the Tkinter configuration window (Story 8/9).
+"""PiLightGUI -- the Tkinter configuration window (Story 8/9/10).
 
 A config editor, not a controller (RESEARCH.md §6): it writes pilight.config's
 JSON file on every change and can be closed at any time. It never calls a
@@ -18,6 +18,13 @@ is what an unprivileged process can show without ever touching uhubctl
 directly. A *missing or stale* file means the daemon isn't keeping up (or
 isn't running at all), and that's shown as such rather than silently
 displaying the last thing it happened to say.
+
+The "Turn on/off now" buttons (Story 10) write a ManualOverride into config
+with an `until` computed from pilight.scheduler.window.next_transition_after
+-- the schedule's own next transition at the moment the button was pressed.
+The daemon clears it once that instant passes, which is also why the
+periodic refresh reloads config from disk rather than only trusting the
+in-memory copy: a window left open needs to notice a clear it didn't cause.
 """
 
 from __future__ import annotations
@@ -29,8 +36,8 @@ from pathlib import Path
 from tkinter import ttk
 from typing import Callable
 
-from pilight.config import PiLightConfig, load_config, save_config
-from pilight.scheduler.window import compute_schedule
+from pilight.config import ManualOverride, PiLightConfig, load_config, save_config
+from pilight.scheduler.window import compute_schedule, next_transition_after
 from pilight.status import load_status
 from pilight.sun import get_sunset
 
@@ -55,7 +62,7 @@ NOT_RUNNING_COLOR = "#e0a030"
 WARN_COLOR = "#e0a030"
 
 WINDOW_TITLE = "Bedroom Light"
-WINDOW_SIZE = "440x290"
+WINDOW_SIZE = "440x330"
 
 REFRESH_INTERVAL_MS = 60_000
 
@@ -117,6 +124,8 @@ class PiLightGUI:
             selectbackground=[("readonly", PANEL)],
             selectforeground=[("readonly", FG)],
         )
+        style.configure("TButton", background=PANEL, foreground=FG)
+        style.map("TButton", background=[("active", ACCENT)])
         # ttk.Style doesn't reach the Combobox popdown listbox -- it's a
         # separate legacy Tk widget under the hood.
         self.root.option_add("*TCombobox*Listbox.background", PANEL)
@@ -169,6 +178,18 @@ class PiLightGUI:
         self.warning_label = ttk.Label(self.root, foreground=WARN_COLOR, wraplength=400)
         self.warning_label.pack(anchor="w", pady=(4, 0), **pad)
 
+        override_row = ttk.Frame(self.root)
+        override_row.pack(fill="x", pady=(8, 0), **pad)
+        ttk.Button(
+            override_row, text="Turn on now", command=lambda: self._on_override_click(True)
+        ).pack(side="left", expand=True, fill="x", padx=(0, 4))
+        ttk.Button(
+            override_row, text="Turn off now", command=lambda: self._on_override_click(False)
+        ).pack(side="left", expand=True, fill="x", padx=(4, 0))
+
+        self.override_label = ttk.Label(self.root, foreground=ACCENT, font=("TkDefaultFont", 8))
+        self.override_label.pack(anchor="w", pady=(4, 0), **pad)
+
         ttk.Separator(self.root, orient="horizontal").pack(fill="x", pady=(12, 8), **pad)
 
         status_row = ttk.Frame(self.root)
@@ -206,7 +227,30 @@ class PiLightGUI:
             save_config(self.config_path, self.config)
         self._refresh()
 
+    def _on_override_click(self, state: bool) -> None:
+        location = self.config.location
+        if location is None:
+            return  # nothing sensible to compute an "until" against yet
+
+        def sunset_for(d: date) -> datetime:
+            return self._get_sunset_fn(d, lat=location.lat, lon=location.lon, tz=location.timezone)
+
+        now = self._now_fn()
+        until = next_transition_after(
+            now, sunset_for, self.config.offset_minutes, _parse_off_time(self.config.off_time)
+        )
+        self.config = replace(self.config, manual_override=ManualOverride(state=state, until=until))
+        save_config(self.config_path, self.config)
+        self._refresh()
+
     def _tick_refresh(self) -> None:
+        # Reload from disk, not just recompute from the in-memory copy: the
+        # daemon itself writes config.json when a manual override lapses
+        # (Story 10), and a window left open should notice that without
+        # requiring the user to touch a control first.
+        self.config = load_config(self.config_path)
+        self.off_time_var.set(self.config.off_time)
+        self.offset_scale.set(self.config.offset_minutes)
         self._refresh()
         self.root.after(REFRESH_INTERVAL_MS, self._tick_refresh)
 
@@ -219,6 +263,7 @@ class PiLightGUI:
         if location is None:
             self.on_time_label.configure(text=f"{offset_text} · location not yet resolved")
             self.warning_label.configure(text="")
+            self.override_label.configure(text="")
             self.status_dot.configure(foreground=MUTED)
             self.status_text.configure(text="unknown")
             self.transition_label.configure(text="")
@@ -243,6 +288,17 @@ class PiLightGUI:
             self.warning_label.configure(text="")
         else:
             self.warning_label.configure(text="⚠ This combination never turns the light on")
+
+        override = self.config.manual_override
+        if override is not None and now < override.until:
+            self.override_label.configure(
+                text=(
+                    f"Manual override: {'on' if override.state else 'off'} "
+                    f"until {format_clock(override.until)}"
+                )
+            )
+        else:
+            self.override_label.configure(text="")
 
         sunset_today = sunset_for(now.date())
         self.corner_label.configure(

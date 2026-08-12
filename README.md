@@ -156,6 +156,13 @@ group-writable (`pilight/util/atomic.py`) so the unprivileged GUI, as a member o
 group (see [docs/story-7-systemd-service.md](docs/story-7-systemd-service.md)), can write
 `config.json` without needing root.
 
+**Turn on now / Turn off now** force the light immediately, holding until the schedule's own
+next transition (`pilight.scheduler.window.next_transition_after`) -- at that instant control
+hands back to the normal schedule automatically, and the daemon clears the override from
+config so it doesn't linger. The window shows *"Manual override: on until HH:MM"* while one is
+active, and reloads config from disk on its periodic refresh so a daemon-initiated clear is
+noticed even if the window was left open.
+
 ## Tests
 
 ```bash

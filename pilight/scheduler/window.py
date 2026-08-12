@@ -135,3 +135,32 @@ def compute_schedule(
         window_valid=True,
         used_polar_fallback=fallback_today,
     )
+
+
+def next_transition_after(
+    now: datetime,
+    sunset_for_date: SunsetLookup,
+    offset_minutes: int,
+    off_time: time,
+    *,
+    tz=None,
+) -> datetime:
+    """The next moment compute_schedule()'s own decision would change, strictly after ``now``.
+
+    Used by the manual override (Story 10): an override set right now holds
+    until this moment, then automatic control resumes -- by construction,
+    that's exactly when the schedule's own desire changes, so the handoff
+    is seamless regardless of which direction the override forced.
+
+    Looks at yesterday's, today's, and tomorrow's sunset-anchored windows and
+    returns the smallest on/off boundary strictly after ``now`` -- three
+    windows is enough margin that "now" being anywhere in a normal-length
+    window still finds its close, and the window after it, without needing
+    to search further.
+    """
+    tz = tz if tz is not None else now.tzinfo
+    candidates: list[datetime] = []
+    for offset_days in (-1, 0, 1):
+        on, off, _ = _window_for(now.date() + timedelta(days=offset_days), sunset_for_date, offset_minutes, off_time, tz)
+        candidates.extend((on, off))
+    return min(t for t in candidates if t > now)
