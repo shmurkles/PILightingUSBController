@@ -274,6 +274,73 @@ def test_override_is_honored_fresh_after_a_daemon_restart(tmp_path):
     assert daemon._backend.get_power() is True
 
 
+def test_location_and_sunset_logged_on_first_tick(tmp_path, caplog):
+    now = datetime(2026, 6, 1, 12, 0, tzinfo=TZ)
+    daemon = _daemon(tmp_path, _config(off_time="23:00"), now=now)
+    with caplog.at_level(logging.INFO):
+        daemon.tick()
+    assert "Portland" in caplog.text
+    assert "sunset=" in caplog.text
+
+
+def test_location_not_relogged_on_a_tick_with_no_config_change(tmp_path, caplog):
+    now = datetime(2026, 6, 1, 12, 0, tzinfo=TZ)
+    daemon = _daemon(tmp_path, _config(off_time="23:00"), now=now)
+    daemon.tick()
+    caplog.clear()
+    with caplog.at_level(logging.INFO):
+        daemon.tick()
+    assert "Portland" not in caplog.text
+
+
+def test_location_relogged_after_a_config_change(tmp_path, caplog):
+    path = tmp_path / "config.json"
+    now = datetime(2026, 6, 1, 12, 0, tzinfo=TZ)
+    save_config(path, _config(off_time="23:00"))
+    daemon = SchedulerDaemon(path, now_fn=lambda: now, get_sunset_fn=_fake_sunset(time(20, 0)))
+    daemon.tick()
+    caplog.clear()
+
+    save_config(path, _config(off_time="22:00"))
+    os.utime(path, (1_700_000_500, 1_700_000_500))
+    with caplog.at_level(logging.INFO):
+        daemon.tick()
+    assert "Portland" in caplog.text
+
+
+def test_transition_log_includes_sunset_on_off_and_reason(tmp_path, caplog):
+    now = datetime(2026, 6, 1, 21, 0, tzinfo=TZ)
+    daemon = _daemon(tmp_path, _config(off_time="23:00"), now=now)
+    with caplog.at_level(logging.INFO):
+        daemon.tick()
+    assert "sunset=" in caplog.text
+    assert "on=" in caplog.text
+    assert "off=" in caplog.text
+    assert "reason=scheduled" in caplog.text
+
+
+def test_transition_log_reason_is_manual_override_when_forced(tmp_path, caplog):
+    now = datetime(2026, 1, 1, 12, 0, tzinfo=TZ)
+    until = datetime(2026, 1, 1, 18, 0, tzinfo=TZ)
+    config = _config(off_time="23:00", manual_override=ManualOverride(state=True, until=until))
+    daemon = _daemon(tmp_path, config, now=now)
+    with caplog.at_level(logging.INFO):
+        daemon.tick()
+    assert "reason=manual override" in caplog.text
+
+
+def test_no_change_tick_produces_no_info_logs(tmp_path, caplog):
+    # Outside the window, default backend state already off -> no switch,
+    # no reload, no transition. Story 12: routine ticks stay quiet.
+    now = datetime(2026, 1, 1, 12, 0, tzinfo=TZ)
+    daemon = _daemon(tmp_path, _config(off_time="23:00"), now=now)
+    daemon.tick()
+    caplog.clear()
+    with caplog.at_level(logging.INFO):
+        daemon.tick()
+    assert caplog.text == ""
+
+
 def test_backend_error_does_not_update_status(tmp_path, monkeypatch):
     class FlakyBackend:
         def describe(self):
