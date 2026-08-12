@@ -132,6 +132,22 @@ Full install steps (dedicated venv, state directory permissions, seeding a locat
 the service has anything to do): [docs/story-7-systemd-service.md](docs/story-7-systemd-service.md).
 The unit file itself is [deploy/pilight-scheduler.service](deploy/pilight-scheduler.service).
 
+## Configuration window
+
+```bash
+python3 -m pilight.gui   # needs a real display -- run on the Pi's desktop, not over plain SSH
+```
+
+A small, fixed-size, dark-themed Tkinter window: a slider for the sunset offset (-3h to +3h,
+snapping to 15-minute steps, showing both the offset and the resulting on-time live), a
+dropdown for the off time, and a status corner showing the nearest city, today's sunset, and
+the currently scheduled on/off state. Every change is saved immediately (atomically, via
+`pilight.config`) and settings persist across restarts of the window. An offset/off-time
+combination that never turns the light on is warned about visibly rather than silently doing
+nothing. It's a config editor, not a controller -- it writes JSON and can be closed at any
+time; [the scheduler daemon](#scheduler-daemon) owns all actual switching. Rationale:
+[RESEARCH.md §6](RESEARCH.md#6-gui).
+
 ## Tests
 
 ```bash

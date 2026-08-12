@@ -12,9 +12,9 @@ import os
 import sys
 from pathlib import Path
 
-from .daemon import SchedulerDaemon
+from pilight.config import DEFAULT_CONFIG_PATH
 
-DEFAULT_CONFIG_PATH = Path("/var/lib/pilight/config.json")
+from .daemon import SchedulerDaemon
 
 
 def main(argv: list[str] | None = None) -> int:
