@@ -10,7 +10,7 @@ flaky depending on the season it happens to run in.
 from __future__ import annotations
 
 import os
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -18,6 +18,7 @@ import pytest
 from pilight.config import PiLightConfig, load_config, save_config
 from pilight.gui.app import PiLightGUI
 from pilight.location import ResolvedLocation
+from pilight.status import DaemonStatus, save_status
 
 pytestmark = pytest.mark.skipif(
     not os.environ.get("DISPLAY"), reason="no DISPLAY available for Tkinter"
@@ -143,20 +144,105 @@ def test_no_warning_for_a_normal_window(tmp_path):
         app.destroy()
 
 
-def test_status_dot_reflects_the_scheduled_state(tmp_path):
-    # FIXED_NOW is 21:00; window 20:00-23:00 -> currently on.
-    app = _make_app(tmp_path, offset_minutes=0, off_time="23:00")
+def test_no_status_file_shows_scheduler_not_running(tmp_path):
+    app = _make_app(tmp_path)
     try:
-        assert app.status_text.cget("text") == "on"
+        assert app.status_text.cget("text") == "scheduler not running"
+        assert "no data" in app.transition_label.cget("text")
     finally:
         app.destroy()
 
-    # FIXED_NOW is 21:00; window already closed at 20:30 -> currently off.
-    app2 = _make_app(tmp_path, offset_minutes=0, off_time="20:30")
+
+def test_stale_status_file_shows_scheduler_not_running(tmp_path):
+    app = _make_app(tmp_path)
     try:
-        assert app2.status_text.cget("text") == "off"
+        save_status(
+            app._status_path,
+            DaemonStatus(
+                actual_on=True,
+                desired_on=True,
+                last_transition_at=FIXED_NOW,
+                last_transition_to=True,
+                updated_at=FIXED_NOW - timedelta(minutes=10),
+            ),
+        )
+        app._refresh()
+        assert app.status_text.cget("text") == "scheduler not running"
+        assert "stale" in app.transition_label.cget("text")
     finally:
-        app2.destroy()
+        app.destroy()
+
+
+def test_fresh_status_file_shows_the_real_actual_state(tmp_path):
+    app = _make_app(tmp_path)
+    try:
+        save_status(
+            app._status_path,
+            DaemonStatus(
+                actual_on=False,  # deliberately different from what the schedule would compute
+                desired_on=False,
+                last_transition_at=None,
+                last_transition_to=None,
+                updated_at=FIXED_NOW,
+            ),
+        )
+        app._refresh()
+        assert app.status_text.cget("text") == "off"
+        assert app.transition_label.cget("text") == "no transitions recorded yet"
+    finally:
+        app.destroy()
+
+
+def test_fresh_status_file_shows_last_transition(tmp_path):
+    app = _make_app(tmp_path)
+    try:
+        save_status(
+            app._status_path,
+            DaemonStatus(
+                actual_on=True,
+                desired_on=True,
+                last_transition_at=datetime(2026, 6, 1, 20, 24, tzinfo=TZ),
+                last_transition_to=True,
+                updated_at=FIXED_NOW,
+            ),
+        )
+        app._refresh()
+        assert app.status_text.cget("text") == "on"
+        assert "20:24" in app.transition_label.cget("text")
+        assert "on" in app.transition_label.cget("text")
+    finally:
+        app.destroy()
+
+
+def test_unknown_actual_state_is_shown_distinctly(tmp_path):
+    app = _make_app(tmp_path)
+    try:
+        save_status(
+            app._status_path,
+            DaemonStatus(
+                actual_on=None,
+                desired_on=True,
+                last_transition_at=None,
+                last_transition_to=None,
+                updated_at=FIXED_NOW,
+            ),
+        )
+        app._refresh()
+        assert app.status_text.cget("text") == "unknown"
+    finally:
+        app.destroy()
+
+
+def test_closing_the_gui_never_touches_a_power_backend(tmp_path, monkeypatch):
+    def _boom(*_a, **_k):
+        raise AssertionError("GUI must never create a power backend")
+
+    monkeypatch.setattr("pilight.power.create_backend", _boom)
+    app = _make_app(tmp_path)
+    app._on_offset_change("45")
+    app.off_time_var.set("22:00")
+    app._on_off_time_change()
+    app.destroy()  # must not raise, and _boom must never have been called
 
 
 def test_missing_location_does_not_crash_and_shows_a_hint(tmp_path):

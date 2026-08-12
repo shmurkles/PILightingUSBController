@@ -140,13 +140,21 @@ python3 -m pilight.gui   # needs a real display -- run on the Pi's desktop, not 
 
 A small, fixed-size, dark-themed Tkinter window: a slider for the sunset offset (-3h to +3h,
 snapping to 15-minute steps, showing both the offset and the resulting on-time live), a
-dropdown for the off time, and a status corner showing the nearest city, today's sunset, and
-the currently scheduled on/off state. Every change is saved immediately (atomically, via
-`pilight.config`) and settings persist across restarts of the window. An offset/off-time
+dropdown for the off time, and a status corner. Every change is saved immediately (atomically,
+via `pilight.config`) and settings persist across restarts of the window. An offset/off-time
 combination that never turns the light on is warned about visibly rather than silently doing
 nothing. It's a config editor, not a controller -- it writes JSON and can be closed at any
-time; [the scheduler daemon](#scheduler-daemon) owns all actual switching. Rationale:
+time with no effect on the light; [the scheduler daemon](#scheduler-daemon) owns all actual
+switching, and the GUI runs fully unprivileged (it never touches a power backend). Rationale:
 [RESEARCH.md §6](RESEARCH.md#6-gui).
+
+The status corner reads [`pilight.status`](pilight/status.py), a small file the daemon writes
+every successful tick with its real current state and last transition -- not a GUI-side guess.
+If that file is missing or older than 90s, the corner shows **"scheduler not running"** rather
+than silently displaying stale information. Both files under `/var/lib/pilight` are written
+group-writable (`pilight/util/atomic.py`) so the unprivileged GUI, as a member of the `pilight`
+group (see [docs/story-7-systemd-service.md](docs/story-7-systemd-service.md)), can write
+`config.json` without needing root.
 
 ## Tests
 

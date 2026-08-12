@@ -17,6 +17,7 @@ from typing import Callable
 
 from pilight.config import PiLightConfig, load_config
 from pilight.power import PowerBackend, PowerBackendError, create_backend
+from pilight.status import DaemonStatus, load_status, save_status
 from pilight.sun import get_sunset
 
 from .window import compute_schedule
@@ -45,10 +46,12 @@ class SchedulerDaemon:
         self,
         config_path: Path,
         *,
+        status_path: Path | None = None,
         now_fn: Callable[[], datetime] = _default_now,
         get_sunset_fn: Callable[..., datetime] = get_sunset,
     ):
         self._config_path = config_path
+        self._status_path = status_path or config_path.with_name("status.json")
         self._now_fn = now_fn
         self._get_sunset_fn = get_sunset_fn
 
@@ -56,6 +59,13 @@ class SchedulerDaemon:
         self._loaded_mtime: float | None = None
         self._backend: PowerBackend | None = None
         self._backend_key: tuple | None = None
+
+        # Seed continuity across a restart: an existing status file's last
+        # transition is still true history, not something that happened to
+        # have never occurred just because the process did.
+        existing = load_status(self._status_path)
+        self._last_transition_at = existing.last_transition_at if existing else None
+        self._last_transition_to = existing.last_transition_to if existing else None
 
     def _reload_config_if_changed(self) -> PiLightConfig:
         try:
@@ -120,12 +130,27 @@ class SchedulerDaemon:
             actual = backend.get_power()
             if actual != decision.desired_on:
                 backend.set_power(decision.desired_on)
+                self._last_transition_at = now
+                self._last_transition_to = decision.desired_on
                 log.info(
                     "switched light %s (on=%s off=%s)",
                     "on" if decision.desired_on else "off",
                     decision.on_time.isoformat(),
                     decision.off_time.isoformat(),
                 )
+            # Reconciliation succeeded (no exception below this point), so the
+            # true current state is now decision.desired_on regardless of
+            # which branch above ran.
+            save_status(
+                self._status_path,
+                DaemonStatus(
+                    actual_on=decision.desired_on,
+                    desired_on=decision.desired_on,
+                    last_transition_at=self._last_transition_at,
+                    last_transition_to=self._last_transition_to,
+                    updated_at=now,
+                ),
+            )
         except PowerBackendError as exc:
             log.error("power backend error (%s); will retry next tick", exc)
 
