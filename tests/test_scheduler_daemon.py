@@ -136,7 +136,30 @@ def test_run_ticks_the_given_number_of_times_and_sleeps_between(tmp_path):
     daemon = _daemon(tmp_path, _config(off_time="23:00"), now=now)
     sleeps: list[float] = []
     daemon.run(sleep_fn=sleeps.append, iterations=3)
-    assert sleeps == [30.0, 30.0]
+    # Two 30s waits between three ticks, broken into 1s steps since nothing
+    # ever changes the config file during the fake sleeps in this test.
+    assert sleeps == [1.0] * 60
+    assert sum(sleeps) == 60.0
+
+
+def test_run_wakes_early_when_config_changes_mid_wait(tmp_path):
+    path = tmp_path / "config.json"
+    save_config(path, _config(off_time="23:00"))
+    now = datetime(2026, 1, 1, 12, 0, tzinfo=TZ)
+    daemon = SchedulerDaemon(path, now_fn=lambda: now, get_sunset_fn=_fake_sunset(time(20, 0)))
+
+    sleep_calls: list[float] = []
+
+    def fake_sleep(seconds: float) -> None:
+        sleep_calls.append(seconds)
+        if len(sleep_calls) == 3:
+            # Simulate a GUI write landing partway through the wait -- an
+            # override click, in the scenario this fixes.
+            save_config(path, _config(off_time="22:00"))
+
+    daemon.run(sleep_fn=fake_sleep, iterations=2)
+    # Woke on the 3rd short sleep instead of waiting out all 30.
+    assert len(sleep_calls) == 3
 
 
 def test_status_file_written_after_a_successful_tick(tmp_path):

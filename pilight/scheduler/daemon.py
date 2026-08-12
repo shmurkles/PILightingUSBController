@@ -27,6 +27,15 @@ log = logging.getLogger(__name__)
 
 TICK_SECONDS = 30.0
 
+#: Granularity of the wait between ticks. The wait is broken into steps this
+#: long, rechecking config.json's mtime after each one, so an external
+#: write -- above all a manual override click, which should feel like a
+#: light switch -- is noticed within about a second instead of waiting out
+#: however much of a blind TICK_SECONDS sleep happened to be left. Found
+#: live: journal timestamps showed clicks landing right after a tick had
+#: just started its sleep, sitting unreconciled for the better part of 30s.
+WAKE_POLL_SECONDS = 1.0
+
 
 def _default_now() -> datetime:
     return datetime.now().astimezone()
@@ -212,7 +221,8 @@ class SchedulerDaemon:
         sleep_fn: Callable[[float], None] = time_module.sleep,
         iterations: int | None = None,
     ) -> None:
-        """Loop forever, one tick every ``TICK_SECONDS``.
+        """Loop forever, one tick every ``TICK_SECONDS`` -- or sooner, if
+        config.json changes while waiting.
 
         Args:
             sleep_fn: injection point for tests.
@@ -226,4 +236,24 @@ class SchedulerDaemon:
             count += 1
             if iterations is not None and count >= iterations:
                 return
-            sleep_fn(TICK_SECONDS)
+            self._wait_for_next_tick(sleep_fn)
+
+    def _wait_for_next_tick(self, sleep_fn: Callable[[float], None]) -> None:
+        """Sleep up to ``TICK_SECONDS``, in ``WAKE_POLL_SECONDS`` steps,
+        returning early the moment config.json's mtime changes."""
+        try:
+            baseline_mtime = self._config_path.stat().st_mtime
+        except OSError:
+            baseline_mtime = None
+
+        elapsed = 0.0
+        while elapsed < TICK_SECONDS:
+            step = min(WAKE_POLL_SECONDS, TICK_SECONDS - elapsed)
+            sleep_fn(step)
+            elapsed += step
+            try:
+                mtime = self._config_path.stat().st_mtime
+            except OSError:
+                mtime = None
+            if mtime != baseline_mtime:
+                return

@@ -145,7 +145,10 @@ daemon.run()   # loops forever: one reconciliation tick every 30s
 
 Reconcile, don't fire: every tick, recompute what the light should be doing right now from
 (now, config, sunset) and switch only on mismatch -- self-healing after reboot or power loss,
-correct across DST and clock steps, applies config edits within 30s with no restart. The
+correct across DST and clock steps, with no restart needed for a config edit to apply. The
+wait between ticks is broken into 1s steps that recheck config.json's mtime, so a GUI change
+-- above all a manual override click -- wakes the daemon within about a second rather than
+sitting for however much of the 30s tick interval happened to be left. The
 decision itself, `pilight.scheduler.window.compute_schedule()`, is a pure function with no
 I/O, so it's unit-tested exhaustively with frozen clocks rather than by running the daemon
 for a day. An offset that pushes on-time past the configured off-time is detected as an
