@@ -144,6 +144,19 @@ def test_polar_day_falls_back_instead_of_raising():
     decision = compute_schedule(_dt(2026, 6, 21, 19, 0), _polar, 0, time(23, 0))
     assert decision.used_polar_fallback is True
     assert decision.on_time.tzinfo is not None
+    assert decision.sunset is None  # no real sunset to report that day
+
+
+def test_decision_reports_the_raw_computed_sunset():
+    decision = compute_schedule(_dt(2026, 6, 1, 21, 0), _fixed_sunset(time(20, 0)), 45, time(23, 0))
+    assert decision.sunset == _dt(2026, 6, 1, 20, 0)
+    assert decision.on_time == _dt(2026, 6, 1, 20, 45)  # offset applied on top of the raw sunset
+
+
+def test_decision_reports_sunset_even_for_an_invalid_window():
+    decision = compute_schedule(_dt(2026, 6, 21, 10, 0), _fixed_sunset(time(21, 30)), 180, time(22, 0))
+    assert decision.window_valid is False
+    assert decision.sunset == _dt(2026, 6, 21, 21, 30)
 
 
 def test_polar_day_fallback_still_produces_a_usable_window():

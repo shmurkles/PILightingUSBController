@@ -152,6 +152,13 @@ for a day. An offset that pushes on-time past the configured off-time is detecte
 invalid window (logged, light left off) rather than switching on for the better part of a
 day. Rationale: [RESEARCH.md §5](RESEARCH.md#5-scheduling-design-reconcile-dont-fire).
 
+**Logging** (Story 12): the resolved location and today's computed sunset are logged whenever
+config is (re)loaded -- at startup, and again after any change, not just once. Every switch
+logs the computed sunset, on-time, off-time, and why (`reason=scheduled` or
+`reason=manual override`). Routine ticks with nothing to do produce no output at the default
+level, so `journalctl -u pilight-scheduler` stays readable rather than one line every 30s
+forever.
+
 ## Running as a service
 
 ```bash

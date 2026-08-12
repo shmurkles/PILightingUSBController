@@ -68,16 +68,17 @@ class SchedulerDaemon:
         self._last_transition_at = existing.last_transition_at if existing else None
         self._last_transition_to = existing.last_transition_to if existing else None
 
-    def _reload_config_if_changed(self) -> PiLightConfig:
+    def _reload_config_if_changed(self) -> tuple[PiLightConfig, bool]:
         try:
             mtime = self._config_path.stat().st_mtime
         except OSError:
             mtime = None
-        if self._loaded_config is None or mtime != self._loaded_mtime:
+        reloaded = self._loaded_config is None or mtime != self._loaded_mtime
+        if reloaded:
             self._loaded_config = load_config(self._config_path)
             self._loaded_mtime = mtime
             log.info("config (re)loaded from %s", self._config_path)
-        return self._loaded_config
+        return self._loaded_config, reloaded
 
     def _backend_for(self, config: PiLightConfig) -> PowerBackend:
         settings = config.backend_settings.get(config.backend, {})
@@ -91,7 +92,7 @@ class SchedulerDaemon:
     def tick(self) -> None:
         """Run one reconciliation step. Never raises."""
         try:
-            config = self._reload_config_if_changed()
+            config, reloaded = self._reload_config_if_changed()
         except Exception:
             log.exception("failed to load config from %s; skipping this tick", self._config_path)
             return
@@ -112,6 +113,21 @@ class SchedulerDaemon:
 
         now = self._now_fn()
         decision = compute_schedule(now, sunset_for, config.offset_minutes, off_time_value)
+
+        if reloaded:
+            # Logged on every (re)load, not just process startup: a location
+            # or offset change from the GUI is exactly the kind of thing a
+            # diagnosis needs visible in the journal, not only the first line.
+            log.info(
+                "location: %s, %s (%.5f, %.5f) tz=%s source=%s | today's sunset=%s",
+                location.city,
+                location.country,
+                location.lat,
+                location.lon,
+                location.timezone,
+                location.source,
+                decision.sunset.isoformat() if decision.sunset else "n/a (polar fallback)",
+            )
 
         if not decision.window_valid:
             log.warning("invalid schedule window: %s", decision.reason)
@@ -165,12 +181,15 @@ class SchedulerDaemon:
                 backend.set_power(desired_on)
                 self._last_transition_at = now
                 self._last_transition_to = desired_on
-                reason = (
-                    "manual override"
-                    if override_active
-                    else f"on={decision.on_time.isoformat()} off={decision.off_time.isoformat()}"
+                reason = "manual override" if override_active else "scheduled"
+                log.info(
+                    "switched light %s: sunset=%s on=%s off=%s reason=%s",
+                    "on" if desired_on else "off",
+                    decision.sunset.isoformat() if decision.sunset else "n/a (polar fallback)",
+                    decision.on_time.isoformat(),
+                    decision.off_time.isoformat(),
+                    reason,
                 )
-                log.info("switched light %s (%s)", "on" if desired_on else "off", reason)
             # Reconciliation succeeded (no exception below this point), so the
             # true current state is now desired_on regardless of which
             # branch above ran.

@@ -38,27 +38,33 @@ class ScheduleDecision:
     window_valid: bool
     reason: str | None = None
     used_polar_fallback: bool = False
+    #: The raw computed sunset behind on_time (on_time = sunset + offset).
+    #: ``None`` only when used_polar_fallback is True -- there is no real
+    #: sunset to report that day. Logged at every transition (Story 12) so
+    #: a wrong evening is diagnosable from the journal without re-deriving
+    #: it by hand.
+    sunset: datetime | None = None
 
 
 def _on_time_for(
     anchor_date: date, sunset_for_date: SunsetLookup, offset_minutes: int, tz
-) -> tuple[datetime, bool]:
+) -> tuple[datetime, datetime | None, bool]:
     try:
         sunset = sunset_for_date(anchor_date)
     except PolarDayError:
         fallback = datetime.combine(anchor_date, POLAR_FALLBACK_ON_TIME, tzinfo=tz)
-        return fallback, True
-    return sunset + timedelta(minutes=offset_minutes), False
+        return fallback, None, True
+    return sunset + timedelta(minutes=offset_minutes), sunset, False
 
 
 def _window_for(
     anchor_date: date, sunset_for_date: SunsetLookup, offset_minutes: int, off_time: time, tz
-) -> tuple[datetime, datetime, bool]:
-    on_time, used_fallback = _on_time_for(anchor_date, sunset_for_date, offset_minutes, tz)
+) -> tuple[datetime, datetime, datetime | None, bool]:
+    on_time, sunset, used_fallback = _on_time_for(anchor_date, sunset_for_date, offset_minutes, tz)
     off = datetime.combine(on_time.date(), off_time, tzinfo=on_time.tzinfo)
     if off <= on_time:
         off += timedelta(days=1)
-    return on_time, off, used_fallback
+    return on_time, off, sunset, used_fallback
 
 
 def compute_schedule(
@@ -104,10 +110,10 @@ def compute_schedule(
     """
     tz = tz if tz is not None else now.tzinfo
     today = now.date()
-    on_today, off_today, fallback_today = _window_for(
+    on_today, off_today, sunset_today, fallback_today = _window_for(
         today, sunset_for_date, offset_minutes, off_time, tz
     )
-    on_yesterday, off_yesterday, _ = _window_for(
+    on_yesterday, off_yesterday, _, _ = _window_for(
         today - timedelta(days=1), sunset_for_date, offset_minutes, off_time, tz
     )
 
@@ -125,6 +131,7 @@ def compute_schedule(
                 f"offset likely pushes on-time past a sane off-time"
             ),
             used_polar_fallback=fallback_today,
+            sunset=sunset_today,
         )
 
     desired = (on_today <= now < off_today) or (on_yesterday <= now < off_yesterday)
@@ -134,6 +141,7 @@ def compute_schedule(
         off_time=off_today,
         window_valid=True,
         used_polar_fallback=fallback_today,
+        sunset=sunset_today,
     )
 
 
@@ -161,6 +169,8 @@ def next_transition_after(
     tz = tz if tz is not None else now.tzinfo
     candidates: list[datetime] = []
     for offset_days in (-1, 0, 1):
-        on, off, _ = _window_for(now.date() + timedelta(days=offset_days), sunset_for_date, offset_minutes, off_time, tz)
+        on, off, _, _ = _window_for(
+            now.date() + timedelta(days=offset_days), sunset_for_date, offset_minutes, off_time, tz
+        )
         candidates.extend((on, off))
     return min(t for t in candidates if t > now)
