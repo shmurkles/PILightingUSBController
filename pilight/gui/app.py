@@ -1,4 +1,4 @@
-"""PiLightGUI -- the Tkinter configuration window (Story 8).
+"""PiLightGUI -- the Tkinter configuration window (Story 8/9).
 
 A config editor, not a controller (RESEARCH.md §6): it writes pilight.config's
 JSON file on every change and can be closed at any time. It never calls a
@@ -6,14 +6,18 @@ power backend directly -- pilight.scheduler's daemon owns all actual
 switching, which is what keeps the light working whether or not this window
 is open.
 
-The "current state" shown is the *scheduled* state -- what
-pilight.scheduler.window.compute_schedule() says the light should be doing
-right now, given this window's own in-memory settings -- not a live read of
-the daemon's actual reported state. Story 9 replaces this with the real
-thing (a status file the daemon writes); doing that here would need the GUI
-to either run privileged (it must not -- Story 9's own criterion) or read a
-mechanism Story 9 hasn't built yet. This is an honest interim approximation
-that reuses Story 6's pure function as-is.
+The slider/dropdown preview (the on-time readout and the empty-window
+warning) is always computed locally from whatever is currently selected, via
+pilight.scheduler.window.compute_schedule() -- it answers "what would this
+setting do", independent of the daemon.
+
+The status row is different: it reads pilight.status's status file, written
+by the daemon every successful tick (Story 9). A *fresh* file means real
+actual state and real last-transition history, not a GUI-side guess -- this
+is what an unprivileged process can show without ever touching uhubctl
+directly. A *missing or stale* file means the daemon isn't keeping up (or
+isn't running at all), and that's shown as such rather than silently
+displaying the last thing it happened to say.
 """
 
 from __future__ import annotations
@@ -27,6 +31,7 @@ from typing import Callable
 
 from pilight.config import PiLightConfig, load_config, save_config
 from pilight.scheduler.window import compute_schedule
+from pilight.status import load_status
 from pilight.sun import get_sunset
 
 from .formatting import (
@@ -45,10 +50,12 @@ MUTED = "#9a9a9a"
 ACCENT = "#4fa8ff"
 ON_COLOR = "#57c785"
 OFF_COLOR = "#707070"
+UNKNOWN_COLOR = "#9a9a9a"
+NOT_RUNNING_COLOR = "#e0a030"
 WARN_COLOR = "#e0a030"
 
 WINDOW_TITLE = "Bedroom Light"
-WINDOW_SIZE = "440x260"
+WINDOW_SIZE = "440x290"
 
 REFRESH_INTERVAL_MS = 60_000
 
@@ -62,11 +69,13 @@ class PiLightGUI:
         self,
         config_path: Path,
         *,
+        status_path: Path | None = None,
         root: tk.Tk | None = None,
         now_fn: Callable[[], datetime] = lambda: datetime.now().astimezone(),
         get_sunset_fn: Callable[..., datetime] = get_sunset,
     ):
         self.config_path = config_path
+        self._status_path = status_path or config_path.with_name("status.json")
         self._now_fn = now_fn
         self._get_sunset_fn = get_sunset_fn
         self.config: PiLightConfig = load_config(config_path)
@@ -163,7 +172,7 @@ class PiLightGUI:
         ttk.Separator(self.root, orient="horizontal").pack(fill="x", pady=(12, 8), **pad)
 
         status_row = ttk.Frame(self.root)
-        status_row.pack(fill="x", pady=(0, 12), **pad)
+        status_row.pack(fill="x", pady=(0, 2), **pad)
         self.corner_label = ttk.Label(status_row, foreground=MUTED)
         self.corner_label.pack(side="left")
         status_right = ttk.Frame(status_row)
@@ -172,6 +181,9 @@ class PiLightGUI:
         self.status_dot.pack(side="left")
         self.status_text = ttk.Label(status_right, text="")
         self.status_text.pack(side="left", padx=(4, 0))
+
+        self.transition_label = ttk.Label(self.root, foreground=MUTED, font=("TkDefaultFont", 8))
+        self.transition_label.pack(anchor="e", pady=(0, 12), **pad)
 
     # -- callbacks -------------------------------------------------------------
 
@@ -209,6 +221,7 @@ class PiLightGUI:
             self.warning_label.configure(text="")
             self.status_dot.configure(foreground=MUTED)
             self.status_text.configure(text="unknown")
+            self.transition_label.configure(text="")
             self.corner_label.configure(
                 text="location not yet resolved (run: python -m pilight.location resolve)"
             )
@@ -231,14 +244,38 @@ class PiLightGUI:
         else:
             self.warning_label.configure(text="⚠ This combination never turns the light on")
 
-        if decision.desired_on:
+        sunset_today = sunset_for(now.date())
+        self.corner_label.configure(
+            text=f"{location.city}, {location.country} · sunset {format_clock(sunset_today)}"
+        )
+
+        self._refresh_status(now)
+
+    def _refresh_status(self, now: datetime) -> None:
+        status = load_status(self._status_path)
+
+        if status is None or status.is_stale(now=now):
+            self.status_dot.configure(foreground=NOT_RUNNING_COLOR)
+            self.status_text.configure(text="scheduler not running")
+            self.transition_label.configure(
+                text="no data from the scheduler yet" if status is None else "last known state is stale"
+            )
+            return
+
+        if status.actual_on is None:
+            self.status_dot.configure(foreground=UNKNOWN_COLOR)
+            self.status_text.configure(text="unknown")
+        elif status.actual_on:
             self.status_dot.configure(foreground=ON_COLOR)
             self.status_text.configure(text="on")
         else:
             self.status_dot.configure(foreground=OFF_COLOR)
             self.status_text.configure(text="off")
 
-        sunset_today = sunset_for(now.date())
-        self.corner_label.configure(
-            text=f"{location.city}, {location.country} · sunset {format_clock(sunset_today)}"
-        )
+        if status.last_transition_at is None:
+            self.transition_label.configure(text="no transitions recorded yet")
+        else:
+            direction = "on" if status.last_transition_to else "off"
+            self.transition_label.configure(
+                text=f"last transition: {direction} at {format_clock(status.last_transition_at)}"
+            )

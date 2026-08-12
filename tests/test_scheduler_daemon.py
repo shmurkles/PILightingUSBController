@@ -11,6 +11,7 @@ from pilight.config import PiLightConfig, save_config
 from pilight.location import ResolvedLocation
 from pilight.power import PowerBackendError
 from pilight.scheduler import SchedulerDaemon
+from pilight.status import DaemonStatus, load_status, save_status
 
 TZ = ZoneInfo("America/Los_Angeles")
 LOCATION = ResolvedLocation(45.5152, -122.6784, "Portland", "US", "America/Los_Angeles", "manual")
@@ -136,3 +137,92 @@ def test_run_ticks_the_given_number_of_times_and_sleeps_between(tmp_path):
     sleeps: list[float] = []
     daemon.run(sleep_fn=sleeps.append, iterations=3)
     assert sleeps == [30.0, 30.0]
+
+
+def test_status_file_written_after_a_successful_tick(tmp_path):
+    now = datetime(2026, 6, 1, 21, 0, tzinfo=TZ)
+    daemon = _daemon(tmp_path, _config(off_time="23:00"), now=now)
+    daemon.tick()
+    status = load_status(daemon._status_path)
+    assert status is not None
+    assert status.actual_on is True
+    assert status.desired_on is True
+    assert status.updated_at == now
+
+
+def test_status_records_a_transition(tmp_path):
+    now = datetime(2026, 6, 1, 21, 0, tzinfo=TZ)
+    daemon = _daemon(tmp_path, _config(off_time="23:00"), now=now)  # desired True, default actual False
+    daemon.tick()
+    status = load_status(daemon._status_path)
+    assert status.last_transition_at == now
+    assert status.last_transition_to is True
+
+
+def test_status_last_transition_is_unchanged_on_a_tick_with_no_switch(tmp_path):
+    path = tmp_path / "config.json"
+    save_config(path, _config(off_time="23:00"))
+    t1 = datetime(2026, 6, 1, 21, 0, tzinfo=TZ)
+    t2 = datetime(2026, 6, 1, 21, 5, tzinfo=TZ)
+    now_box = {"now": t1}
+    daemon = SchedulerDaemon(path, now_fn=lambda: now_box["now"], get_sunset_fn=_fake_sunset(time(20, 0)))
+
+    daemon.tick()  # switches on at t1
+    now_box["now"] = t2
+    daemon.tick()  # still desired on, no switch
+
+    status = load_status(daemon._status_path)
+    assert status.last_transition_at == t1
+    assert status.updated_at == t2  # heartbeat still refreshes every tick
+
+
+def test_status_seeds_last_transition_from_an_existing_file_on_restart(tmp_path):
+    config_path = tmp_path / "config.json"
+    # Backend's initial state matches what the prior status claims (True),
+    # so this tick reconciles cleanly with no new switch -- otherwise a real
+    # mismatch against the live backend would itself cause a legitimate new
+    # transition, which is a different scenario from the one under test.
+    save_config(
+        config_path,
+        _config(off_time="23:00", backend_settings={"dryrun": {"initial_state": True}}),
+    )
+    status_path = tmp_path / "status.json"
+    earlier = datetime(2026, 6, 1, 20, 0, tzinfo=TZ)
+    save_status(
+        status_path,
+        DaemonStatus(
+            actual_on=True,
+            desired_on=True,
+            last_transition_at=earlier,
+            last_transition_to=True,
+            updated_at=earlier,
+        ),
+    )
+
+    now = datetime(2026, 6, 1, 21, 0, tzinfo=TZ)  # still within the window, no new switch needed
+    daemon = SchedulerDaemon(
+        config_path, status_path=status_path, now_fn=lambda: now, get_sunset_fn=_fake_sunset(time(20, 0))
+    )
+    daemon.tick()
+
+    status = load_status(status_path)
+    assert status.last_transition_at == earlier  # preserved, not reset to None
+    assert status.updated_at == now  # heartbeat still moves forward
+
+
+def test_backend_error_does_not_update_status(tmp_path, monkeypatch):
+    class FlakyBackend:
+        def describe(self):
+            return "flaky"
+
+        def get_power(self):
+            return False
+
+        def set_power(self, on):
+            raise PowerBackendError("simulated failure")
+
+    monkeypatch.setattr("pilight.scheduler.daemon.create_backend", lambda cfg: FlakyBackend())
+    now = datetime(2026, 6, 1, 21, 0, tzinfo=TZ)
+    daemon = _daemon(tmp_path, _config(off_time="23:00"), now=now)
+    daemon.tick()
+    assert load_status(daemon._status_path) is None
