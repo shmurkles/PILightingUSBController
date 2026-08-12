@@ -64,7 +64,16 @@ WARN_COLOR = "#e0a030"
 WINDOW_TITLE = "Bedroom Light"
 WINDOW_SIZE = "440x330"
 
-REFRESH_INTERVAL_MS = 60_000
+#: How often the window re-reads config.json and status.json on its own,
+#: with no user action. Reading two small local JSON files is essentially
+#: free, so this is bounded by human patience, not cost -- 60s (the
+#: original value) meant a status change from clicking "Turn on/off now"
+#: could look stuck for up to a minute even though the daemon had already
+#: reconciled it in a few seconds, which is exactly what happened in
+#: practice: journal timestamps showed the daemon applying an override
+#: within ~3s of the config write, while the window kept showing the
+#: pre-click state because it simply hadn't looked again yet.
+REFRESH_INTERVAL_MS = 3_000
 
 
 def _parse_off_time(value: str) -> time:

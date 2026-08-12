@@ -17,7 +17,7 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from pilight.config import ManualOverride, PiLightConfig, load_config, save_config
-from pilight.gui.app import PiLightGUI
+from pilight.gui.app import REFRESH_INTERVAL_MS, PiLightGUI
 from pilight.location import ResolvedLocation
 from pilight.status import DaemonStatus, save_status
 
@@ -298,6 +298,16 @@ def test_tick_refresh_reloads_config_from_disk(tmp_path):
         assert app.offset_scale.get() == -60
     finally:
         app.destroy()
+
+
+def test_refresh_interval_is_short_enough_to_feel_responsive():
+    # Regression guard: this was 60_000 (a full minute) and made manual
+    # override clicks look broken -- the daemon reconciled in a few seconds
+    # (confirmed from real journal timestamps), but the window kept showing
+    # pre-click state for up to a minute because it simply hadn't looked
+    # again. Reading two small local JSON files is essentially free, so
+    # there's no cost reason for this to ever be slow.
+    assert REFRESH_INTERVAL_MS <= 5_000
 
 
 def test_corner_label_shows_city_and_sunset(tmp_path):
