@@ -10,12 +10,13 @@ flaky depending on the season it happens to run in.
 from __future__ import annotations
 
 import os
+from dataclasses import replace
 from datetime import date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
 import pytest
 
-from pilight.config import PiLightConfig, load_config, save_config
+from pilight.config import ManualOverride, PiLightConfig, load_config, save_config
 from pilight.gui.app import PiLightGUI
 from pilight.location import ResolvedLocation
 from pilight.status import DaemonStatus, save_status
@@ -250,6 +251,51 @@ def test_missing_location_does_not_crash_and_shows_a_hint(tmp_path):
     try:
         assert "not yet resolved" in app.corner_label.cget("text")
         assert app.status_text.cget("text") == "unknown"
+    finally:
+        app.destroy()
+
+
+def test_override_button_sets_config_and_label(tmp_path):
+    app = _make_app(tmp_path, offset_minutes=0, off_time="23:00")
+    try:
+        app._on_override_click(True)
+        assert app.config.manual_override is not None
+        assert app.config.manual_override.state is True
+        assert "Manual override: on until" in app.override_label.cget("text")
+        assert load_config(app.config_path).manual_override is not None
+    finally:
+        app.destroy()
+
+
+def test_override_label_empty_when_no_override(tmp_path):
+    app = _make_app(tmp_path)
+    try:
+        assert app.override_label.cget("text") == ""
+    finally:
+        app.destroy()
+
+
+def test_override_label_hidden_once_lapsed(tmp_path):
+    app = _make_app(tmp_path)
+    try:
+        app.config = replace(
+            app.config,
+            manual_override=ManualOverride(state=True, until=FIXED_NOW - timedelta(minutes=1)),
+        )
+        app._refresh()
+        assert app.override_label.cget("text") == ""
+    finally:
+        app.destroy()
+
+
+def test_tick_refresh_reloads_config_from_disk(tmp_path):
+    app = _make_app(tmp_path, offset_minutes=0)
+    try:
+        # Simulate an external change, e.g. the daemon clearing a lapsed override.
+        save_config(app.config_path, replace(app.config, offset_minutes=-60))
+        app._tick_refresh()
+        assert app.config.offset_minutes == -60
+        assert app.offset_scale.get() == -60
     finally:
         app.destroy()
 

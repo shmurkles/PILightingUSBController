@@ -15,6 +15,8 @@ from typing import Any, Mapping
 
 from pilight.location import ResolvedLocation
 
+from .override import ManualOverride
+
 log = logging.getLogger(__name__)
 
 CURRENT_SCHEMA_VERSION = 1
@@ -42,7 +44,7 @@ class PiLightConfig:
     offset_minutes: int = DEFAULT_OFFSET_MINUTES
     off_time: str = DEFAULT_OFF_TIME
     location: ResolvedLocation | None = None
-    manual_override: dict | None = None
+    manual_override: ManualOverride | None = None
     backend: str = DEFAULT_BACKEND
     #: backend name -> its settings, e.g. {"uhubctl": {"location": "2"}}.
     #: Keyed by name rather than fixed fields so a future backend (the RESEARCH.md
@@ -63,7 +65,7 @@ class PiLightConfig:
             "offset_minutes": self.offset_minutes,
             "off_time": self.off_time,
             "location": self.location.to_dict() if self.location is not None else None,
-            "manual_override": self.manual_override,
+            "manual_override": self.manual_override.to_dict() if self.manual_override else None,
             "backend": self.backend,
         }
         data.update(self.backend_settings)
@@ -143,14 +145,17 @@ def _validate_location(value: Any) -> ResolvedLocation | None:
         return None
 
 
-def _validate_manual_override(value: Any) -> dict | None:
+def _validate_manual_override(value: Any) -> ManualOverride | None:
     if value is None:
         return None
-    if not isinstance(value, dict):
+    if not isinstance(value, Mapping):
         log.warning("config field manual_override=%r is not an object; discarding", value)
         return None
-    # Story 10 owns this shape's own validation; here it's opaque pass-through.
-    return value
+    try:
+        return ManualOverride.from_dict(value)
+    except (KeyError, TypeError, ValueError) as exc:
+        log.warning("config field manual_override is malformed (%s); discarding", exc)
+        return None
 
 
 def _validate_backend_name(value: Any) -> str:

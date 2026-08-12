@@ -3,9 +3,13 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
-from pilight.config import PiLightConfig
+from pilight.config import ManualOverride, PiLightConfig
 from pilight.location import ResolvedLocation
+
+TZ = ZoneInfo("America/Los_Angeles")
 
 LOCATION = ResolvedLocation(
     lat=45.5152,
@@ -96,9 +100,17 @@ def test_location_that_is_not_an_object_is_discarded():
     assert config.location is None
 
 
-def test_manual_override_passes_through_as_opaque_object():
-    config = PiLightConfig.from_dict({"manual_override": {"state": "on", "until": "23:30"}})
-    assert config.manual_override == {"state": "on", "until": "23:30"}
+def test_manual_override_round_trips():
+    override = ManualOverride(state=True, until=datetime(2026, 6, 1, 23, 30, tzinfo=TZ))
+    config = PiLightConfig.from_dict({"manual_override": override.to_dict()})
+    assert config.manual_override == override
+
+
+def test_malformed_manual_override_is_discarded(caplog):
+    with caplog.at_level(logging.WARNING):
+        config = PiLightConfig.from_dict({"manual_override": {"state": "on"}})  # missing "until"
+    assert config.manual_override is None
+    assert "manual_override" in caplog.text
 
 
 def test_manual_override_that_is_not_an_object_is_discarded():

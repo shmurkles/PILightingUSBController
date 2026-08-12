@@ -9,7 +9,7 @@ from __future__ import annotations
 from datetime import date, datetime, time
 from zoneinfo import ZoneInfo
 
-from pilight.scheduler.window import compute_schedule
+from pilight.scheduler.window import compute_schedule, next_transition_after
 from pilight.sun import PolarDayError
 
 TZ = ZoneInfo("America/Los_Angeles")
@@ -153,3 +153,34 @@ def test_polar_day_fallback_still_produces_a_usable_window():
     decision = compute_schedule(_dt(2026, 6, 21, 19, 0), _polar, 0, time(23, 0))
     assert decision.window_valid is True
     assert decision.desired_on is True  # 19:00 falls within the fallback [18:00, 23:00)
+
+
+# -- next_transition_after (Story 10: manual override) ---------------------
+
+
+def test_next_transition_before_on_time_is_on_time():
+    nxt = next_transition_after(_dt(2026, 6, 1, 14, 0), _fixed_sunset(time(20, 0)), 0, time(23, 0))
+    assert nxt == _dt(2026, 6, 1, 20, 0)
+
+
+def test_next_transition_between_on_and_off_is_off_time():
+    nxt = next_transition_after(_dt(2026, 6, 1, 21, 0), _fixed_sunset(time(20, 0)), 0, time(23, 0))
+    assert nxt == _dt(2026, 6, 1, 23, 0)
+
+
+def test_next_transition_after_off_time_is_tomorrows_on_time():
+    nxt = next_transition_after(_dt(2026, 6, 1, 23, 30), _fixed_sunset(time(20, 0)), 0, time(23, 0))
+    assert nxt == _dt(2026, 6, 2, 20, 0)
+
+
+def test_next_transition_handles_a_midnight_crossing_window():
+    # window 20:00 - 01:00(+1); at 22:00 the next boundary is tomorrow 01:00.
+    nxt = next_transition_after(_dt(2026, 6, 1, 22, 0), _fixed_sunset(time(20, 0)), 0, time(1, 0))
+    assert nxt == _dt(2026, 6, 2, 1, 0)
+
+
+def test_next_transition_is_always_strictly_after_now():
+    # Exactly at a boundary -- must return the *next* one, not the same instant.
+    nxt = next_transition_after(_dt(2026, 6, 1, 20, 0), _fixed_sunset(time(20, 0)), 0, time(23, 0))
+    assert nxt > _dt(2026, 6, 1, 20, 0)
+    assert nxt == _dt(2026, 6, 1, 23, 0)

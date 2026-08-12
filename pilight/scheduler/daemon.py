@@ -11,11 +11,12 @@ from __future__ import annotations
 
 import logging
 import time as time_module
+from dataclasses import replace
 from datetime import date, datetime, time
 from pathlib import Path
 from typing import Callable
 
-from pilight.config import PiLightConfig, load_config
+from pilight.config import PiLightConfig, load_config, save_config
 from pilight.power import PowerBackend, PowerBackendError, create_backend
 from pilight.status import DaemonStatus, load_status, save_status
 from pilight.sun import get_sunset
@@ -120,6 +121,38 @@ class SchedulerDaemon:
                 decision.on_time.time(),
             )
 
+        # Manual override (Story 10): forces desired_on until the instant
+        # that was, at override-set time, the schedule's own next
+        # transition. Once that instant passes, clear it from config so the
+        # GUI's "override active" display and this check both go back to
+        # agreeing with the plain schedule -- persisted immediately rather
+        # than only in memory, so the clearing survives a restart too.
+        #
+        # This is the one case where the daemon itself writes config.json
+        # (every other write is the GUI's). A GUI edit landing in the same
+        # instant could theoretically be clobbered by this write reading a
+        # stale copy -- an accepted risk for a single-user device, not worth
+        # a locking protocol over.
+        desired_on = decision.desired_on
+        override_active = False
+        override = config.manual_override
+        if override is not None:
+            if now < override.until:
+                desired_on = override.state
+                override_active = True
+            else:
+                log.info(
+                    "manual override lapsed at %s; resuming automatic control",
+                    override.until.isoformat(),
+                )
+                config = replace(config, manual_override=None)
+                self._loaded_config = config
+                try:
+                    save_config(self._config_path, config)
+                    self._loaded_mtime = self._config_path.stat().st_mtime
+                except OSError as exc:
+                    log.error("could not clear lapsed manual override (%s)", exc)
+
         try:
             backend = self._backend_for(config)
         except PowerBackendError as exc:
@@ -128,24 +161,24 @@ class SchedulerDaemon:
 
         try:
             actual = backend.get_power()
-            if actual != decision.desired_on:
-                backend.set_power(decision.desired_on)
+            if actual != desired_on:
+                backend.set_power(desired_on)
                 self._last_transition_at = now
-                self._last_transition_to = decision.desired_on
-                log.info(
-                    "switched light %s (on=%s off=%s)",
-                    "on" if decision.desired_on else "off",
-                    decision.on_time.isoformat(),
-                    decision.off_time.isoformat(),
+                self._last_transition_to = desired_on
+                reason = (
+                    "manual override"
+                    if override_active
+                    else f"on={decision.on_time.isoformat()} off={decision.off_time.isoformat()}"
                 )
+                log.info("switched light %s (%s)", "on" if desired_on else "off", reason)
             # Reconciliation succeeded (no exception below this point), so the
-            # true current state is now decision.desired_on regardless of
-            # which branch above ran.
+            # true current state is now desired_on regardless of which
+            # branch above ran.
             save_status(
                 self._status_path,
                 DaemonStatus(
-                    actual_on=decision.desired_on,
-                    desired_on=decision.desired_on,
+                    actual_on=desired_on,
+                    desired_on=desired_on,
                     last_transition_at=self._last_transition_at,
                     last_transition_to=self._last_transition_to,
                     updated_at=now,

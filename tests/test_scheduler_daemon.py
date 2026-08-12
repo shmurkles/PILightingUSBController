@@ -7,7 +7,7 @@ import os
 from datetime import date, datetime, time
 from zoneinfo import ZoneInfo
 
-from pilight.config import PiLightConfig, save_config
+from pilight.config import ManualOverride, PiLightConfig, load_config, save_config
 from pilight.location import ResolvedLocation
 from pilight.power import PowerBackendError
 from pilight.scheduler import SchedulerDaemon
@@ -208,6 +208,70 @@ def test_status_seeds_last_transition_from_an_existing_file_on_restart(tmp_path)
     status = load_status(status_path)
     assert status.last_transition_at == earlier  # preserved, not reset to None
     assert status.updated_at == now  # heartbeat still moves forward
+
+
+def test_override_forces_on_regardless_of_schedule(tmp_path):
+    now = datetime(2026, 1, 1, 12, 0, tzinfo=TZ)  # well outside the normal window
+    until = datetime(2026, 1, 1, 18, 0, tzinfo=TZ)
+    config = _config(off_time="23:00", manual_override=ManualOverride(state=True, until=until))
+    daemon = _daemon(tmp_path, config, now=now)
+    daemon.tick()
+    assert daemon._backend.get_power() is True
+
+
+def test_override_forces_off_regardless_of_schedule(tmp_path):
+    now = datetime(2026, 6, 1, 21, 0, tzinfo=TZ)  # inside the normal on-window
+    until = datetime(2026, 6, 1, 22, 0, tzinfo=TZ)
+    config = _config(
+        off_time="23:00",
+        backend_settings={"dryrun": {"initial_state": True}},
+        manual_override=ManualOverride(state=False, until=until),
+    )
+    daemon = _daemon(tmp_path, config, now=now)
+    daemon.tick()
+    assert daemon._backend.get_power() is False
+
+
+def test_override_lapses_and_is_cleared_from_config(tmp_path):
+    path = tmp_path / "config.json"
+    until = datetime(2026, 6, 1, 20, 30, tzinfo=TZ)
+    save_config(
+        path, _config(off_time="23:00", manual_override=ManualOverride(state=False, until=until))
+    )
+    now = datetime(2026, 6, 1, 21, 0, tzinfo=TZ)  # past `until`
+    daemon = SchedulerDaemon(path, now_fn=lambda: now, get_sunset_fn=_fake_sunset(time(20, 0)))
+    daemon.tick()
+
+    assert load_config(path).manual_override is None
+    # Normal scheduling resumed: 21:00 is within the 20:00-23:00 window -> on.
+    assert daemon._backend.get_power() is True
+
+
+def test_override_still_active_is_not_cleared(tmp_path):
+    path = tmp_path / "config.json"
+    until = datetime(2026, 6, 1, 22, 0, tzinfo=TZ)
+    save_config(
+        path, _config(off_time="23:00", manual_override=ManualOverride(state=False, until=until))
+    )
+    now = datetime(2026, 6, 1, 21, 0, tzinfo=TZ)  # before `until`
+    daemon = SchedulerDaemon(path, now_fn=lambda: now, get_sunset_fn=_fake_sunset(time(20, 0)))
+    daemon.tick()
+
+    assert load_config(path).manual_override is not None
+
+
+def test_override_is_honored_fresh_after_a_daemon_restart(tmp_path):
+    path = tmp_path / "config.json"
+    until = datetime(2026, 1, 1, 18, 0, tzinfo=TZ)
+    save_config(
+        path, _config(off_time="23:00", manual_override=ManualOverride(state=True, until=until))
+    )
+    now = datetime(2026, 1, 1, 12, 0, tzinfo=TZ)  # before `until`, outside the normal window
+    # A brand new SchedulerDaemon instance simulates a restart: no in-memory
+    # state carried over, only what's on disk.
+    daemon = SchedulerDaemon(path, now_fn=lambda: now, get_sunset_fn=_fake_sunset(time(20, 0)))
+    daemon.tick()
+    assert daemon._backend.get_power() is True
 
 
 def test_backend_error_does_not_update_status(tmp_path, monkeypatch):

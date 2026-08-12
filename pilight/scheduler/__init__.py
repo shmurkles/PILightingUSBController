@@ -19,11 +19,12 @@ and no daemon, backend, or filesystem involved.
 """
 
 from .daemon import TICK_SECONDS, SchedulerDaemon
-from .window import ScheduleDecision, compute_schedule
+from .window import ScheduleDecision, compute_schedule, next_transition_after
 
 __all__ = [
     "TICK_SECONDS",
     "ScheduleDecision",
     "SchedulerDaemon",
     "compute_schedule",
+    "next_transition_after",
 ]
